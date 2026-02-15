@@ -143,7 +143,13 @@ docker compose up -d openclaw-gateway
 
 **Cause:** The token in `.env` (used by Docker) differs from the token in `~/.openclaw/openclaw.json`.
 
-**Fix:**
+**Fix (automatic):**
+```bash
+# doctor.sh now detects and fixes token mismatches:
+./doctor.sh --fix
+```
+
+**Fix (manual):**
 ```bash
 # Check what token Docker is using
 grep OPENCLAW_GATEWAY_TOKEN .env
@@ -151,8 +157,17 @@ grep OPENCLAW_GATEWAY_TOKEN .env
 # Check what the config file has
 grep -A2 '"auth"' ~/.openclaw/openclaw.json
 
-# If they differ, the .env token takes precedence (Docker injects it).
-# Update your dashboard/client to use the .env token.
+# If they differ, sync the .env token to the config file:
+TOKEN=$(grep OPENCLAW_GATEWAY_TOKEN .env | cut -d= -f2)
+python3 -c "
+import json
+with open('$HOME/.openclaw/openclaw.json','r') as f: cfg=json.load(f)
+cfg['gateway']['auth']['token']='$TOKEN'
+with open('$HOME/.openclaw/openclaw.json','w') as f: json.dump(cfg,f,indent=2)
+"
+
+# Then restart:
+docker compose restart openclaw-gateway
 ```
 
 ### "fetch failed" Errors in Gateway Logs

@@ -83,6 +83,39 @@ else
   fail "OPENCLAW_GATEWAY_TOKEN is empty"
 fi
 
+# Check token consistency between .env and openclaw.json
+OPENCLAW_JSON="${CONFIG_DIR:-$HOME/.openclaw}/openclaw.json"
+if [[ -f "$OPENCLAW_JSON" ]] && [[ -n "${OPENCLAW_GATEWAY_TOKEN:-}" ]]; then
+  JSON_TOKEN=$(python3 -c "
+import json, sys
+try:
+  with open('$OPENCLAW_JSON') as f: cfg = json.load(f)
+  print(cfg.get('gateway',{}).get('auth',{}).get('token',''))
+except: pass
+" 2>/dev/null)
+  if [[ -n "$JSON_TOKEN" ]]; then
+    if [[ "$JSON_TOKEN" == "$OPENCLAW_GATEWAY_TOKEN" ]]; then
+      pass "Token in .env matches openclaw.json"
+    else
+      fail "Token MISMATCH: .env and openclaw.json have different tokens"
+      info "The .env token (injected by Docker) takes precedence at runtime."
+      info "Clients reading openclaw.json directly will fail to authenticate."
+      if $FIX_MODE; then
+        python3 -c "
+import json
+with open('$OPENCLAW_JSON','r') as f: cfg = json.load(f)
+cfg.setdefault('gateway',{}).setdefault('auth',{})['token'] = '$OPENCLAW_GATEWAY_TOKEN'
+with open('$OPENCLAW_JSON','w') as f: json.dump(cfg, f, indent=2)
+" 2>/dev/null && fix "Synced .env token → openclaw.json" || fail "Could not sync token to openclaw.json"
+      fi
+    fi
+  else
+    info "Could not read token from openclaw.json (file may not have gateway.auth.token yet)"
+  fi
+elif [[ ! -f "$OPENCLAW_JSON" ]]; then
+  info "openclaw.json not found yet (will be created on first onboarding)"
+fi
+
 CONFIG_DIR="${OPENCLAW_CONFIG_DIR:-$HOME/.openclaw}"
 if [[ -d "$CONFIG_DIR" ]]; then
   pass "Config directory exists: $CONFIG_DIR"
@@ -171,6 +204,19 @@ case "$GW_STATE" in
       info "Attempting restart..."
       if (cd "$ROOT_DIR" && docker compose up -d openclaw-gateway); then
         fix "Gateway restarted"
+        # Wait for health check to pass
+        info "Waiting for gateway to become healthy (up to 60s)..."
+        for i in $(seq 1 12); do
+          sleep 5
+          HEALTH=$(docker inspect --format='{{.State.Health.Status}}' openclaw-gateway 2>/dev/null || echo "unknown")
+          if [[ "$HEALTH" == "healthy" ]]; then
+            pass "Gateway is healthy after restart"
+            break
+          elif [[ "$i" -eq 12 ]]; then
+            warn "Gateway did not become healthy within 60s (current: $HEALTH)"
+            info "Check logs: docker logs --tail 30 openclaw-gateway"
+          fi
+        done
       else
         fail "Could not restart gateway"
       fi
@@ -182,6 +228,18 @@ case "$GW_STATE" in
       info "Starting gateway..."
       if (cd "$ROOT_DIR" && docker compose up -d openclaw-gateway); then
         fix "Gateway started"
+        info "Waiting for gateway to become healthy (up to 60s)..."
+        for i in $(seq 1 12); do
+          sleep 5
+          HEALTH=$(docker inspect --format='{{.State.Health.Status}}' openclaw-gateway 2>/dev/null || echo "unknown")
+          if [[ "$HEALTH" == "healthy" ]]; then
+            pass "Gateway is healthy after start"
+            break
+          elif [[ "$i" -eq 12 ]]; then
+            warn "Gateway did not become healthy within 60s (current: $HEALTH)"
+            info "Check logs: docker logs --tail 30 openclaw-gateway"
+          fi
+        done
       else
         fail "Could not start gateway"
       fi

@@ -83,6 +83,11 @@ OPENCLAW_GATEWAY_PORT=$OPENCLAW_GATEWAY_PORT
 OPENCLAW_BRIDGE_PORT=$OPENCLAW_BRIDGE_PORT
 OPENCLAW_GATEWAY_BIND=$OPENCLAW_GATEWAY_BIND
 OPENCLAW_GATEWAY_TOKEN=$OPENCLAW_GATEWAY_TOKEN
+
+# Suppress Docker Compose warnings for image-referenced variables.
+CLAUDE_AI_SESSION_KEY=
+CLAUDE_WEB_SESSION_KEY=
+CLAUDE_WEB_COOKIE=
 EOF
 
 ok "Wrote .env file."
@@ -114,6 +119,21 @@ echo "    Install daemon:  No"
 echo ""
 
 docker compose --profile cli run --rm openclaw-cli onboard --no-install-daemon
+
+# ─── Sync Token to Config ───────────────────────────────────────────
+# After onboarding, the config file may have a different or empty token.
+# Force-sync the .env token so all consumers agree.
+OPENCLAW_JSON="$OPENCLAW_CONFIG_DIR/openclaw.json"
+if [[ -f "$OPENCLAW_JSON" ]]; then
+  python3 -c "
+import json
+with open('$OPENCLAW_JSON','r') as f: cfg = json.load(f)
+cfg.setdefault('gateway',{}).setdefault('auth',{})['token'] = '$OPENCLAW_GATEWAY_TOKEN'
+with open('$OPENCLAW_JSON','w') as f: json.dump(cfg, f, indent=2)
+" && ok "Token synced to openclaw.json" || warn "Could not sync token (non-fatal, Docker env var takes precedence)"
+  chmod 600 "$OPENCLAW_JSON"
+  ok "Config file permissions set to 600."
+fi
 
 # ─── Add Telegram Channel ────────────────────────────────────────────
 echo ""
