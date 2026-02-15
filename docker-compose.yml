@@ -1,0 +1,74 @@
+# OpenClaw Production Docker Compose
+# Khalil Krimech — AI Portfolio & Agentic System
+#
+# Architecture:
+#   - openclaw-gateway: WebSocket control plane (port 18789)
+#   - openclaw-cli: Management CLI (connects via Docker DNS)
+#
+# Gateway is accessed via SSH tunnel: ssh -L 18789:127.0.0.1:18789 user@vps
+# NEVER expose port 18789 to the public internet.
+
+services:
+  openclaw-gateway:
+    image: ${OPENCLAW_IMAGE:-openclaw:local}
+    container_name: openclaw-gateway
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR:-~/.openclaw}:/home/node/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR:-~/.openclaw/workspace}:/home/node/.openclaw/workspace
+    ports:
+      # Bind to 127.0.0.1 ONLY — no public exposure.
+      # Access via SSH tunnel: ssh -L 18789:127.0.0.1:18789 user@vps
+      - "127.0.0.1:${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+      - "127.0.0.1:${OPENCLAW_BRIDGE_PORT:-18790}:18790"
+    init: true
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "dist/index.js", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    command:
+      - "node"
+      - "dist/index.js"
+      - "gateway"
+      - "--bind"
+      # "lan" binds to all interfaces INSIDE the container.
+      # This is required so that:
+      #   1. The CLI container can reach it via Docker DNS
+      #   2. Host port-mapping (SSH tunnel) can reach it via Docker NAT
+      # Despite the name, "lan" does NOT expose to the public —
+      # the ports directive above restricts host binding to 127.0.0.1.
+      - "${OPENCLAW_GATEWAY_BIND:-lan}"
+      - "--port"
+      - "18789"
+
+  openclaw-cli:
+    image: ${OPENCLAW_IMAGE:-openclaw:local}
+    container_name: openclaw-cli
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      # Override the default gateway URL so the CLI connects
+      # to the gateway container via Docker DNS — NOT localhost.
+      OPENCLAW_GATEWAY_URL: "ws://openclaw-gateway:18789"
+      BROWSER: echo
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR:-~/.openclaw}:/home/node/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR:-~/.openclaw/workspace}:/home/node/.openclaw/workspace
+    stdin_open: true
+    tty: true
+    init: true
+    # CLI is run on-demand, not as a long-running service.
+    # Use: docker compose run --rm openclaw-cli <command>
+    profiles:
+      - cli
+    entrypoint: ["node", "dist/index.js"]
+    depends_on:
+      openclaw-gateway:
+        condition: service_healthy
