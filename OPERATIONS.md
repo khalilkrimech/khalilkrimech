@@ -1,6 +1,7 @@
 # OpenClaw Operations Guide
 
-Production deployment on Hetzner VPS (Ubuntu 24.04).
+Production deployment on DigitalOcean Droplet (Ubuntu 24.04).
+See [DEPLOY-GUIDE.md](DEPLOY-GUIDE.md) for initial DigitalOcean setup with $200 free credit.
 
 ## Quick Reference
 
@@ -28,7 +29,7 @@ chmod +x setup.sh
 ./setup.sh
 
 # 3. From your local machine, open an SSH tunnel
-ssh -L 18789:127.0.0.1:18789 user@your-vps-ip
+ssh -L 18789:127.0.0.1:18789 openclaw@your-droplet-ip
 
 # 4. Open the dashboard
 #    http://localhost:18789/
@@ -196,7 +197,7 @@ docker compose exec openclaw-gateway wget -qO- https://api.moonshot.ai/v1/models
 ## Networking Architecture
 
 ```
-Your Laptop                     Hetzner VPS
+Your Laptop                     DigitalOcean Droplet
 ┌──────────────┐     SSH       ┌─────────────────────────────────┐
 │ Browser      │────tunnel────▶│ 127.0.0.1:18789                 │
 │ localhost:   │               │      │                           │
